@@ -17,20 +17,21 @@ package provider
 import (
 	"context"
 	"fmt"
-	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
-	"google.golang.org/protobuf/types/known/emptypb"
-	"math/rand"
-	"time"
+	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/resource/provider"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/plugin"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
 
+	semver "github.com/Masterminds/semver/v3"
 	pbempty "github.com/golang/protobuf/ptypes/empty"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type ociRegistryProvider struct {
@@ -153,19 +154,49 @@ func (p *ociRegistryProvider) Create(ctx context.Context, req *pulumirpc.CreateR
 		return nil, err
 	}
 
-	// Replace the below random number implementation with logic specific to your provider
-	if !inputs["length"].IsNumber() {
-		return nil, fmt.Errorf("expected input property 'length' of type 'number' but got '%s", inputs["length"].TypeString())
+	typeError := func(field resource.PropertyKey, expectedType string) error {
+		return fmt.Errorf("expected input property %q of type %q but got %q", field, expectedType, inputs[field].TypeString())
 	}
 
-	n := int(inputs["length"].NumberValue())
+	// Get the repository name, and the (semver) constraint
+	var repoProp resource.PropertyValue
+	if repoProp = inputs["imageRepo"]; !repoProp.IsString() {
+		return nil, typeError("imageRepo", "string")
+	}
 
-	// Actually "create" the random number
-	result := makeRandom(n)
+	var constraintProp resource.PropertyValue
+	if constraintProp = inputs["constraint"]; !constraintProp.IsString() {
+		return nil, typeError("constraint", "string")
+	}
+
+	// Get the tags from the registry
+
+	repo, err := name.NewRepository(repoProp.StringValue())
+	if err != nil {
+		return nil, fmt.Errorf("%q is not a valid image repository: %w", repoProp.StringValue(), err)
+	}
+
+	constraint, err := semver.NewConstraint(constraintProp.StringValue())
+	if err != nil {
+		return nil, fmt.Errorf("%q is not a valid semver constraint: %w", constraintProp.StringValue(), err)
+	}
+
+	tags, err := remote.List(repo)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch tags for image repository %q: %w", repo.String(), err)
+	}
+
+	latestTag, err := calculateLatest(constraint, tags)
+	if err != nil {
+		return nil, err
+	}
+
+	latestRef := repo.Tag(latestTag).String()
 
 	outputs := map[string]interface{}{
-		"length": n,
-		"result": result,
+		"imageRepo":  repoProp.StringValue(),
+		"constraint": constraintProp.StringValue(),
+		"imageRef":   latestRef,
 	}
 
 	outputProperties, err := plugin.MarshalProperties(
@@ -176,7 +207,7 @@ func (p *ociRegistryProvider) Create(ctx context.Context, req *pulumirpc.CreateR
 		return nil, err
 	}
 	return &pulumirpc.CreateResponse{
-		Id:         result,
+		Id:         latestRef, // FIXME: unclear what should go here
 		Properties: outputProperties,
 	}, nil
 }
@@ -236,13 +267,38 @@ func (p *ociRegistryProvider) Cancel(context.Context, *pbempty.Empty) (*pbempty.
 	return &pbempty.Empty{}, nil
 }
 
-func makeRandom(length int) string {
-	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
-	charset := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-	result := make([]rune, length)
-	for i := range result {
-		result[i] = charset[seededRand.Intn(len(charset))]
+// This function is adapted from https://github.com/fluxcd/image-reflector-controller/blob/main/internal/policy/semver.go. The following is the header from that file.
+/*
+Copyright 2020, 2021 The Flux authors
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+func calculateLatest(constraint *semver.Constraints, versions []string) (string, error) {
+	if len(versions) == 0 {
+		return "", fmt.Errorf("version list argument cannot be empty")
 	}
-	return string(result)
+
+	var latestVersion *semver.Version
+	var latestTag string
+	for _, tag := range versions {
+		vlessTag := strings.TrimPrefix(tag, "v")
+		if v, err := semver.NewVersion(vlessTag); err == nil {
+			if constraint.Check(v) && (latestVersion == nil || v.GreaterThan(latestVersion)) {
+				latestVersion = v
+				latestTag = tag
+			}
+		}
+	}
+
+	if latestVersion != nil {
+		return latestTag, nil
+	}
+	return "", fmt.Errorf("unable to determine latest version from provided list")
 }

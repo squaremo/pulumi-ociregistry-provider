@@ -15,12 +15,13 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+
+	yaml "gopkg.in/yaml.v3"
 
 	dotnetgen "github.com/pulumi/pulumi/pkg/v3/codegen/dotnet"
 	gogen "github.com/pulumi/pulumi/pkg/v3/codegen/go"
@@ -97,7 +98,7 @@ func readSchema(schemaPath string, version string) *schema.Package {
 	}
 
 	var pkgSpec schema.PackageSpec
-	if err = json.Unmarshal(schemaBytes, &pkgSpec); err != nil {
+	if err = yaml.Unmarshal(schemaBytes, &pkgSpec); err != nil {
 		panic(err)
 	}
 	pkgSpec.Version = version
