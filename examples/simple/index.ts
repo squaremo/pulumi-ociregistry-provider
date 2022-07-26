@@ -1,5 +1,5 @@
-import * as xyz from "@pulumi/xyz";
+import * as oci from "@pulumi/ociregistry";
 
-const random = new xyz.Random("my-random", { length: 24 });
+const latest = new oci.ImageVersion("nginx", { imageRepo: "nginx", constraint: ">=1" });
 
-export const output = random.result;
+export const output = latest.imageRef;
