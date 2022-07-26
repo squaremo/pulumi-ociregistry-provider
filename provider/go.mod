@@ -1,4 +1,4 @@
-module github.com/pulumi/pulumi-xyz/provider
+module github.com/squaremo/pulumi-ociregistry-provider/provider
 
 go 1.18
 

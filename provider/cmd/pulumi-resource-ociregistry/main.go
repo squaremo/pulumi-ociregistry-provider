@@ -17,11 +17,11 @@ package main
 
 import (
 	_ "embed"
-	"github.com/pulumi/pulumi-xyz/provider/pkg/provider"
-	"github.com/pulumi/pulumi-xyz/provider/pkg/version"
+	"github.com/squaremo/pulumi-ociregistry-provider/provider/pkg/provider"
+	"github.com/squaremo/pulumi-ociregistry-provider/provider/pkg/version"
 )
 
-var providerName = "xyz"
+var providerName = "ociregistry"
 
 //go:embed schema-embed.json
 var pulumiSchema []byte
