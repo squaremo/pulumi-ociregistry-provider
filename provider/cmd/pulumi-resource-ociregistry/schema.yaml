@@ -1,27 +1,34 @@
 name: ociregistry
 version: 0.0.1
 resources:
-  ociregistry:index:Random:
+  # const latest = new ociregistry.ImageVersion("nginx", { imageRepo: "library/nginx", constraint: ">=1.20.0" });
+  ociregistry:index:ImageVersion:
     properties:
-      length:
-        type: integer
-      result:
+      imageRepo:
+        type: string
+      constraint:
+        type: string
+      imageRef:
         type: string
     required:
-      - length
-      - result
+      - imageRepo
+      - constraint
+      - imageRef
     inputProperties:
-      length:
-        type: integer
+      imageRepo:
+        type: string
+      constraint:
+        type: string
     requiredInputs:
-      - length
+      - imageRepo
+      - constraint
 language:
   csharp:
     packageReferences:
       Pulumi: 3.*
   go:
     generateResourceContainerTypes: true
-    importBasePath: github.com/pulumi/pulumi-xyz/sdk/go/xyz
+    importBasePath: github.com/squaremo/pulumi-ociregistry-provider/sdk/go/ociregistry
   nodejs:
     dependencies:
       '@pulumi/pulumi': ^3.0.0
